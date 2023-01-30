@@ -190,18 +190,24 @@ mod tests {
         let actual = cleansing_path("foo/bar/baz").unwrap();
         assert_eq!(actual, expected);
 
-        let expected = PathBuf::from(format!("foo{sep}bar{sep}baz"));
-        let actual = cleansing_path("foo\\bar\\baz").unwrap();
-        assert_eq!(actual, expected);
+        #[cfg(target_os = "windows")]
+        {
+            let expected = PathBuf::from(format!("foo{sep}bar{sep}baz"));
+            let actual = cleansing_path("foo\\bar\\baz").unwrap();
+            assert_eq!(actual, expected);
+        }
 
         // Current directory check
         let expected = PathBuf::from(format!("tmp{sep}path"));
         let actual = cleansing_path("./tmp/path").unwrap();
         assert_eq!(actual, expected);
 
-        let expected = PathBuf::from(format!("tmp{sep}path"));
-        let actual = cleansing_path(".\\tmp\\path").unwrap();
-        assert_eq!(actual, expected);
+        #[cfg(target_os = "windows")]
+        {
+            let expected = PathBuf::from(format!("tmp{sep}path"));
+            let actual = cleansing_path(".\\tmp\\path").unwrap();
+            assert_eq!(actual, expected);
+        }
 
         // Root check
         let name = "/tmp/path";
@@ -210,10 +216,13 @@ mod tests {
             _ => panic!(),
         }
 
-        let name = "C:\\tmp\\path";
-        match cleansing_path(name) {
-            Err(Error::RootDirContains(s)) => assert_eq!(s, PathBuf::from(name)),
-            _ => panic!(),
+        #[cfg(target_os = "windows")]
+        {
+            let name = "C:\\tmp\\path";
+            match cleansing_path(name) {
+                Err(Error::RootDirContains(s)) => assert_eq!(s, PathBuf::from(name)),
+                _ => panic!(),
+            }
         }
 
         // Parent directory check
@@ -223,10 +232,13 @@ mod tests {
             _ => panic!(),
         }
 
-        let name = "..\\tmp\\path";
-        match cleansing_path(name) {
-            Err(Error::ParentDirContains(s)) => assert_eq!(s, PathBuf::from(name)),
-            _ => panic!(),
+        #[cfg(target_os = "windows")]
+        {
+            let name = "..\\tmp\\path";
+            match cleansing_path(name) {
+                Err(Error::ParentDirContains(s)) => assert_eq!(s, PathBuf::from(name)),
+                _ => panic!(),
+            }
         }
     }
 
