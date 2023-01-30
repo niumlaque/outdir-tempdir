@@ -1,10 +1,80 @@
+//! # TEST-TEMPDIR
+//! A crate for cargo-test to create temporary directories.  
+//! The temporary directories are always created in the `OUT_DIR`.
+//!
+//! # Usage
+//! Add dependency to your `Cargo.toml`.
+//! ```toml
+//! [dev-dependencies]
+//! test-tempdir = { git = "https://github.com/niumlaque/test-tempdir", branch = "main" }
+//! ```
+//!
+//! # Examples
+//! Create a temporary directory with automatic removal.
+//! ```no_run
+//! # use crate::*;
+//! #[test]
+//! fn test_something() {
+//!     // Create a random named temporary directory
+//!     // and automatically remove it when it is dropped.
+//!     let dir = TempDir::new().unwrap().autorm();
+//!
+//!     // Get temporary directory
+//!     // (/path/to/crate/target/(debug|release)/build/test-tempdir-<random>/out/test-<random>)
+//!     let tempdir = dir.path();
+//!
+//!     // Test your code using tempdir
+//!     // ...
+//!
+//!     // Remove the temporary directory when the dir variable is dropped
+//! }
+//! ```
+//!
+//! Create a temporary directory without automatic removal.
+//! ```no_run
+//! # use crate::*;
+//! #[test]
+//! fn test_something() {
+//!     // Create a random named temporary directory
+//!     let dir = TempDir::new().unwrap();
+//!
+//!     // Get temporary directory
+//!     // (/path/to/crate/target/(debug|release)/build/test-tempdir-<random>/out/test-<random>)
+//!     let tempdir = dir.path();
+//!
+//!     // Test your code using tempdir
+//!     // ...
+//!
+//!     // The temporary directory will not be deleted even when dir is dropped.
+//! }
+//! ```
+//!
+//! Create a temporary directory with the desired path.
+//! ```no_run
+//! # use crate::*;
+//! #[test]
+//! fn test_something() {
+//!     // Create a temporary directory with a specified path of 'foo/bar/baz'
+//!     // and automatically remove it when it is dropped.
+//!     let dir = TempDir::with_path("foo/bar/baz").unwrap().autorm();
+//!
+//!     // Get temporary directory
+//!     // (/path/to/crate/target/(debug|release)/build/test-tempdir-<random>/out/foo/bar/baz)
+//!     let tempdir = dir.path();
+//!
+//!     // Test your code using tempdir
+//!     // ...
+//!
+//!     // Remove the temporary directory when the dir variable is dropped
+//! }
+//! ```
 mod error;
-
-use crate::error::{Error, Result};
+pub use crate::error::{Error, Result};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
 
+/// Provides a function to create a temporary directory that will be automatically removed when dropped.
 pub struct TempDir {
     root: PathBuf,
     target: PathBuf,
@@ -13,10 +83,26 @@ pub struct TempDir {
 }
 
 impl TempDir {
+    /// Create a random named temporary directory.
+    ///
+    /// # Errors
+    ///
+    /// Access to parent directory will result in `ParentDirContains` error as it may escape from `OUT_DIR`.
+    /// Access to root directory will also result in `RootDirContains` error for the same reason.
+    /// If the current directory is specified, it will delete `OUT_DIR`, so it will result `InvalidPath` error.
+    /// If the temporary directory cannot be created, it will result `Io` error.
     pub fn new() -> Result<Self> {
         TempDir::with_path(format!("test-{}", Uuid::new_v4()))
     }
 
+    /// Create a temporary directory with a specified path.
+    ///
+    /// # Errors
+    ///
+    /// Access to parent directory will result in `ParentDirContains` error as it may escape from `OUT_DIR`.
+    /// Access to root directory will also result in `RootDirContains` error for the same reason.
+    /// If the current directory is specified, it will delete `OUT_DIR`, so it will result `InvalidPath` error.
+    /// If the temporary directory cannot be created, it will result `Io` error.
     pub fn with_path<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let target = cleansing_path(path)?;
@@ -38,17 +124,20 @@ impl TempDir {
         })
     }
 
+    /// Set automatically removal.
     pub fn autorm(mut self) -> Self {
         self.autorm = true;
         self
     }
 
+    /// Get path to the temporary directory.
     pub fn path(&self) -> &Path {
         self.full.as_path()
     }
 }
 
 impl Drop for TempDir {
+    /// Remove the temporary directory if autorm is true.
     fn drop(&mut self) {
         if self.autorm {
             if let Some(topdir) = self.target.iter().next() {
@@ -59,10 +148,17 @@ impl Drop for TempDir {
     }
 }
 
+/// Get `OUT_DIR` as temporary directory root.
 fn target_root() -> Option<PathBuf> {
     Some(PathBuf::from(std::env!("OUT_DIR")))
 }
 
+/// Clean up the specified path.
+///
+/// # Errors
+///
+/// Access to parent directory will result in `ParentDirContains` error as it may escape from `OUT_DIR`.
+/// Access to root directory will also result in `RootDirContains` error for the same reason.
 fn cleansing_path<P: AsRef<Path>>(path: P) -> Result<PathBuf> {
     let path = path.as_ref();
     let mut ret = PathBuf::new();
