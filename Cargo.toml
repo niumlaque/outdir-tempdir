@@ -1,0 +1,15 @@
+[package]
+name = "test-tempdir"
+version = "0.1.0"
+authors = ["Niumlaque <niumlaque@gmail.com>"]
+description = "Create temporary directories for cargo test."
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies.uuid]
+version = "1.2.2"
+features = [
+    "v4",
+    "fast-rng",
+]
