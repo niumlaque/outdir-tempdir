@@ -1,4 +1,4 @@
-# TEST-TEMPDIR
+# OUTDIR-TEMPDIR
 A crate for cargo-test to create temporary directories.  
 The temporary directories are always created in the `OUT_DIR`.
 
@@ -6,13 +6,13 @@ The temporary directories are always created in the `OUT_DIR`.
 Add dependency to your `Cargo.toml`.
 ```toml
 [dev-dependencies]
-test-tempdir = { git = "https://github.com/niumlaque/test-tempdir", branch = "main" }
+outdir-tempdir = { git = "https://github.com/niumlaque/outdir-tempdir", branch = "main" }
 ```
 
 # Examples
 Create a temporary directory with automatic removal.
 ```rs
-use temp_dir::TempDir;
+use outdir_tempdir::TempDir;
 
 #[test]
 fn test_something() {
@@ -21,11 +21,11 @@ fn test_something() {
     let dir = TempDir::new().unwrap().autorm();
 
     // Get temporary directory
-    // (/path/to/crate/target/(debug|release)/build/test-tempdir-<random>/out/test-<random>)
+    // (/path/to/crate/target/(debug|release)/build/outdir-tempdir-<random>/out/test-<random>)
     let tempdir = dir.path();
 
     // Test your code using tempdir
-    ...
+    // ...
 
     // Remove the temporary directory when the dir variable is dropped
 }
@@ -33,7 +33,7 @@ fn test_something() {
 
 Create a temporary directory without automatic removal.
 ```rs
-use temp_dir::TempDir;
+use outdir_tempdir::TempDir;
 
 #[test]
 fn test_something() {
@@ -41,11 +41,11 @@ fn test_something() {
     let dir = TempDir::new().unwrap();
 
     // Get temporary directory
-    // (/path/to/crate/target/(debug|release)/build/test-tempdir-<random>/out/test-<random>)
+    // (/path/to/crate/target/(debug|release)/build/outdir-tempdir-<random>/out/test-<random>)
     let tempdir = dir.path();
 
     // Test your code using tempdir
-    ...
+    // ...
 
     // The temporary directory will not be deleted even when dir is dropped.
 }
@@ -53,7 +53,7 @@ fn test_something() {
 
 Create a temporary directory with the desired path.
 ```rs
-use temp_dir::TempDir;
+use outdir_tempdir::TempDir;
 
 #[test]
 fn test_something() {
@@ -62,11 +62,11 @@ fn test_something() {
     let dir = TempDir::with_path("foo/bar/baz").unwrap().autorm();
 
     // Get temporary directory
-    // (/path/to/crate/target/(debug|release)/build/test-tempdir-<random>/out/foo/bar/baz)
+    // (/path/to/crate/target/(debug|release)/build/outdir-tempdir-<random>/out/foo/bar/baz)
     let tempdir = dir.path();
 
     // Test your code using tempdir
-    ...
+    // ...
 
     // Remove the temporary directory when the dir variable is dropped
 }

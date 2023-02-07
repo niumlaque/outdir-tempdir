@@ -2,7 +2,7 @@ use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
-/// Enum listing possible errors from test-tempdir.
+/// Enum listing possible errors from outdir-tempdir.
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
@@ -12,7 +12,7 @@ pub enum Error {
     InvalidPath(PathBuf),
 }
 
-/// A specialized [`Result`] type for test-tempdir.
+/// A specialized [`Result`] type for outdir-tempdir.
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl From<io::Error> for Error {
