@@ -6,7 +6,7 @@ The temporary directories are always created in the `OUT_DIR`.
 Add dependency to your `Cargo.toml`.
 ```toml
 [dev-dependencies]
-outdir-tempdir = { git = "https://github.com/niumlaque/outdir-tempdir", branch = "main" }
+outdir-tempdir = "0.1"
 ```
 
 # Examples
