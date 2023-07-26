@@ -87,9 +87,6 @@ impl TempDir {
     ///
     /// # Errors
     ///
-    /// Access to parent directory will result in `ParentDirContains` error as it may escape from `OUT_DIR`.
-    /// Access to root directory will also result in `RootDirContains` error for the same reason.
-    /// If the current directory is specified, it will delete `OUT_DIR`, so it will result `InvalidPath` error.
     /// If the temporary directory cannot be created, it will result `Io` error.
     pub fn new() -> Result<Self> {
         TempDir::with_path(format!("test-{}", Uuid::new_v4()))
