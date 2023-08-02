@@ -8,12 +8,9 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/niumlaque/outdir-tempdir"
 readme = "README.md"
-categories = ["development-tools"]
+categories = ["development-tools::testing"]
 keywords = ["tempdir", "tmpdir"]
 
 [dependencies.uuid]
 version = "1.4.0"
-features = [
-    "v4",
-    "fast-rng",
-]
+features = ["v4", "fast-rng"]
