@@ -1,6 +1,6 @@
 [package]
 name = "outdir-tempdir"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Niumlaque <niumlaque@gmail.com>"]
 description = "A crate for cargo-test to create temporary directories in the OUT_DIR."
 edition = "2021"
@@ -9,7 +9,7 @@ license = "MIT"
 repository = "https://github.com/niumlaque/outdir-tempdir"
 readme = "README.md"
 categories = ["development-tools::testing"]
-keywords = ["tempdir", "tmpdir"]
+keywords = ["tempdir", "tmpdir", "testing"]
 
 [dependencies.uuid]
 version = "1.4.0"
