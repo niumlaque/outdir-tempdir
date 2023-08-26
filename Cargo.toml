@@ -12,5 +12,5 @@ categories = ["development-tools::testing"]
 keywords = ["tempdir", "tmpdir", "testing"]
 
 [dependencies.uuid]
-version = "1.4.0"
+version = "1.4.1"
 features = ["v4", "fast-rng"]
