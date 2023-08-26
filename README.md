@@ -6,7 +6,7 @@ The temporary directories are always created in the `OUT_DIR`.
 Add dependency to your `Cargo.toml`.
 ```toml
 [dev-dependencies]
-outdir-tempdir = "0.1"
+outdir-tempdir = "0.2"
 ```
 
 # Examples
@@ -16,18 +16,18 @@ use outdir_tempdir::TempDir;
 
 #[test]
 fn test_something() {
-    // Create a random named temporary directory
-    // and automatically remove it when it is dropped.
-    let dir = TempDir::new().unwrap().autorm();
+    // Create a randomly named temporary directory
+    // and automatically remove it upon dropping
+    let dir = TempDir::new().autorm();
 
     // Get temporary directory
     // (/path/to/crate/target/(debug|release)/build/outdir-tempdir-<random>/out/test-<random>)
     let tempdir = dir.path();
 
-    // Test your code using tempdir
+    // Test your code using `tempdir`
     // ...
 
-    // Remove the temporary directory when the dir variable is dropped
+    // Remove the temporary directory when the `dir` variable is dropped
 }
 ```
 
@@ -37,37 +37,37 @@ use outdir_tempdir::TempDir;
 
 #[test]
 fn test_something() {
-    // Create a random named temporary directory
-    let dir = TempDir::new().unwrap();
+    // Create a randomly named temporary directory
+    let dir = TempDir::new();
 
     // Get temporary directory
     // (/path/to/crate/target/(debug|release)/build/outdir-tempdir-<random>/out/test-<random>)
     let tempdir = dir.path();
 
-    // Test your code using tempdir
+    // Test your code using `tempdir`
     // ...
 
-    // The temporary directory will not be deleted even when dir is dropped.
+    // The temporary directory will not be deleted even when the `dir` variable is dropped
 }
 ```
 
-Create a temporary directory with the desired path.
+Create a temporary directory using the specified path.
 ```rs
 use outdir_tempdir::TempDir;
 
 #[test]
 fn test_something() {
-    // Create a temporary directory with a specified path of 'foo/bar/baz'
-    // and automatically remove it when it is dropped.
-    let dir = TempDir::with_path("foo/bar/baz").unwrap().autorm();
+    // Create a temporary directory with a specified path 'foo/bar/baz'
+    // and automatically remove it upon dropping
+    let dir = TempDir::with_path("foo/bar/baz").autorm();
 
     // Get temporary directory
     // (/path/to/crate/target/(debug|release)/build/outdir-tempdir-<random>/out/foo/bar/baz)
     let tempdir = dir.path();
 
-    // Test your code using tempdir
+    // Test your code using `tempdir`
     // ...
 
-    // Remove the temporary directory when the dir variable is dropped
+    // Remove the temporary directory when the `dir` variable is dropped
 }
 ```
