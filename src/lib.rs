@@ -104,7 +104,7 @@ impl TempDir {
         let path = path.as_ref();
         let target = cleansing_path(path)?;
 
-        let target_root = target_root().ok_or(Error::RootDirNotFound)?;
+        let target_root = target_root().ok_or(Error::OutDirNotFound)?;
         let target_full_path = target_root.join(&target);
 
         if target_root == target_full_path {

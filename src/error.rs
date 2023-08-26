@@ -8,7 +8,7 @@ pub enum Error {
     Io(io::Error),
     ParentDirContains(PathBuf),
     RootDirContains(PathBuf),
-    RootDirNotFound,
+    OutDirNotFound,
     InvalidPath(PathBuf),
 }
 
@@ -27,9 +27,11 @@ impl fmt::Display for Error {
 
         match self {
             Io(e) => e.fmt(formatter),
-            ParentDirContains(p) => write!(formatter, "{} contains parent dir", p.display()),
-            RootDirContains(p) => write!(formatter, "{} contains root dir", p.display()),
-            RootDirNotFound => write!(formatter, "Root dir for test not found"),
+            ParentDirContains(p) => {
+                write!(formatter, "\"{}\" contains parent directory", p.display())
+            }
+            RootDirContains(p) => write!(formatter, "\"{}\" contains root directory", p.display()),
+            OutDirNotFound => write!(formatter, "OUT_DIR not found"),
             InvalidPath(p) => write!(formatter, "Invalid path {}", p.display()),
         }
     }
