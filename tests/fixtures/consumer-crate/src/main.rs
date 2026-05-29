@@ -14,10 +14,12 @@ mod tests {
     const CHILD_MODE_ENV: &str = "OUTDIR_TEMPDIR_CONSUMER_CHILD_MODE";
     const CHILD_MODE_OUT_DIR_FALLBACK: &str = "out-dir-fallback";
     const CHILD_MODE_TMPDIR_CREATE_FAILS: &str = "tmpdir-create-fails";
+    const CHILD_MODE_EMPTY_ENV_SKIPPED: &str = "empty-env-skipped";
     const CASE_TMPDIR_FIRST: &str = "tmpdir-first";
     const CASE_CARGO_TARGET_TMPDIR_SECOND: &str = "cargo-target-tmpdir-second";
     const CASE_OUT_DIR_LAST: &str = "out-dir-last";
     const CASE_TMPDIR_CREATE_FAILS: &str = "tmpdir-create-fails";
+    const CASE_EMPTY_ENV_SKIPPED: &str = "empty-env-skipped";
 
     fn consumer_docker_test_enabled() -> bool {
         env::var_os(DOCKER_SENTINEL_ENV).is_some()
@@ -145,6 +147,16 @@ mod tests {
             .out_dir()
             .build_with_path(marker_rel_path(case_name))
             .expect("failed to fall back after TMPDIR creation failure")
+            .autorm()
+    }
+
+    fn build_with_empty_env_then_fallback(case_name: &str) -> TempDir {
+        TempDir::builder()
+            .env("OUTDIR_TEMPDIR_EMPTY_ROOT")
+            .cargo_target_tmpdir()
+            .out_dir()
+            .build_with_path(marker_rel_path(case_name))
+            .expect("failed to fall back after empty env root")
             .autorm()
     }
 
@@ -375,6 +387,42 @@ mod tests {
         assert!(status.success(), "child fallback-after-failure test failed");
     }
 
+    #[test]
+    fn builder_skips_empty_env_root_and_uses_cargo_target_tmpdir() {
+        if !consumer_docker_test_enabled() {
+            println!("skipped: this fallback-order test is intended to run inside Docker");
+            return;
+        }
+
+        match env::var(CHILD_MODE_ENV).as_deref() {
+            Ok(CHILD_MODE_EMPTY_ENV_SKIPPED) => {
+                run_empty_env_skipped_child_case();
+                return;
+            }
+            Ok(_) => panic!("unexpected child mode"),
+            Err(_) => {}
+        }
+
+        let current_exe = env::current_exe().expect("failed to locate current test binary");
+        let status = Command::new(current_exe)
+            .env(DOCKER_SENTINEL_ENV, "1")
+            .env(CHILD_MODE_ENV, CHILD_MODE_EMPTY_ENV_SKIPPED)
+            .env(
+                "OUTDIR_TEMPDIR_CONSUMER_CARGO_TARGET_TMPDIR",
+                configured_cargo_target_tmpdir(),
+            )
+            .env("TMPDIR", configured_tmpdir())
+            .env("CARGO_TARGET_TMPDIR", configured_cargo_target_tmpdir())
+            .env("OUTDIR_TEMPDIR_EMPTY_ROOT", "")
+            .arg("--exact")
+            .arg("tests::builder_skips_empty_env_root_and_uses_cargo_target_tmpdir")
+            .arg("--nocapture")
+            .status()
+            .expect("failed to run child test process");
+
+        assert!(status.success(), "child empty-env fallback test failed");
+    }
+
     fn run_out_dir_fallback_child_case() {
         let tmpdir = configured_tmpdir();
         let cargo_target_tmpdir = configured_cargo_target_tmpdir();
@@ -412,6 +460,31 @@ mod tests {
         let cargo_matches =
             find_private_roots_with_marker(&cargo_target_tmpdir, CASE_TMPDIR_CREATE_FAILS);
         let out_matches = find_private_roots_with_marker(&out_dir, CASE_TMPDIR_CREATE_FAILS);
+
+        assert_eq!(cargo_matches, vec![private_root.clone()]);
+        assert!(out_matches.is_empty());
+
+        drop(dir);
+        assert!(!private_root.exists());
+    }
+
+    fn run_empty_env_skipped_child_case() {
+        let cargo_target_tmpdir = configured_cargo_target_tmpdir();
+        let out_dir = detect_out_dir_root();
+
+        assert_eq!(
+            env::var("OUTDIR_TEMPDIR_EMPTY_ROOT").as_deref(),
+            Ok(""),
+            "empty root env must be set to an empty string"
+        );
+
+        let dir = build_with_empty_env_then_fallback(CASE_EMPTY_ENV_SKIPPED);
+        let private_root =
+            assert_builder_selected_root(&dir, &cargo_target_tmpdir, CASE_EMPTY_ENV_SKIPPED);
+
+        let cargo_matches =
+            find_private_roots_with_marker(&cargo_target_tmpdir, CASE_EMPTY_ENV_SKIPPED);
+        let out_matches = find_private_roots_with_marker(&out_dir, CASE_EMPTY_ENV_SKIPPED);
 
         assert_eq!(cargo_matches, vec![private_root.clone()]);
         assert!(out_matches.is_empty());
