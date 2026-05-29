@@ -1,80 +1,130 @@
 //! # OUTDIR-TEMPDIR
-//! A crate for cargo-test to create temporary directories.  
-//! The temporary directories are always created in the `OUT_DIR`.
+//!
+//! `outdir-tempdir` is a small testing utility crate for creating temporary
+//! directories under Cargo-provided directories.
+//!
+//! By default, temporary directories are created under `OUT_DIR`.
+//! This is intentional: this crate is not a general-purpose temporary directory
+//! crate and does not use `$TMPDIR`, `%TEMP%`, or [`std::env::temp_dir`] by default.
+//!
+//! For integration tests and benchmarks where `OUT_DIR` is not writable at test
+//! runtime, this crate also provides APIs that create temporary directories under
+//! `CARGO_TARGET_TMPDIR`.
 //!
 //! # Usage
-//! Add dependency to your `Cargo.toml`.
+//!
+//! Add this crate to your `Cargo.toml`.
+//!
 //! ```toml
 //! [dev-dependencies]
-//! outdir-tempdir = "0.2"
+//! outdir-tempdir = "0.3"
 //! ```
 //!
 //! # Examples
-//! Create a temporary directory with automatic removal.
+//!
+//! Create a temporary directory under `OUT_DIR` with automatic removal.
+//!
 //! ```no_run
-//! # use crate::*;
+//! # use outdir_tempdir::*;
 //! #[test]
 //! fn test_something() {
-//!     // Create a randomly named temporary directory
-//!     // and automatically remove it upon dropping
 //!     let dir = TempDir::new().autorm();
 //!
-//!     // Get temporary directory
-//!     // (/path/to/crate/target/(debug|release)/build/outdir-tempdir-<random>/out/test-<random>)
+//!     // Example:
+//!     // /path/to/crate/target/debug/build/<package>/out/test-<uuid>
 //!     let tempdir = dir.path();
 //!
-//!     // Test your code using `tempdir`
-//!     // ...
+//!     // Test your code using `tempdir`.
 //!
-//!     // Remove the temporary directory when the `dir` variable is dropped
+//!     // The temporary directory is removed when `dir` is dropped.
 //! }
 //! ```
 //!
-//! Create a temporary directory without automatic removal.
+//! Create a temporary directory under `OUT_DIR` without automatic removal.
+//!
 //! ```no_run
-//! # use crate::*;
+//! # use outdir_tempdir::*;
 //! #[test]
 //! fn test_something() {
-//!     // Create a randomly named temporary directory
 //!     let dir = TempDir::new();
 //!
-//!     // Get temporary directory
-//!     // (/path/to/crate/target/(debug|release)/build/outdir-tempdir-<random>/out/test-<random>)
 //!     let tempdir = dir.path();
 //!
-//!     // Test your code using `tempdir`
-//!     // ...
+//!     // Test your code using `tempdir`.
 //!
-//!     // The temporary directory will not be deleted even when the `dir` variable is dropped
+//!     // The temporary directory is not removed when `dir` is dropped.
 //! }
 //! ```
 //!
-//! Create a temporary directory using the specified path.
+//! Create a temporary directory under `OUT_DIR` using a specified relative path.
+//!
 //! ```no_run
-//! # use crate::*;
+//! # use outdir_tempdir::*;
 //! #[test]
 //! fn test_something() {
-//!     // Create a temporary directory with a specified path 'foo/bar/baz'
-//!     // and automatically remove it upon dropping
 //!     let dir = TempDir::with_path("foo/bar/baz").autorm();
 //!
-//!     // Get temporary directory
-//!     // (/path/to/crate/target/(debug|release)/build/outdir-tempdir-<random>/out/foo/bar/baz)
+//!     // Example:
+//!     // /path/to/crate/target/debug/build/<package>/out/foo/bar/baz
 //!     let tempdir = dir.path();
 //!
-//!     // Test your code using `tempdir`
-//!     // ...
-//!
-//!     // Remove the temporary directory when the `dir` variable is dropped
+//!     // Test your code using `tempdir`.
 //! }
 //! ```
+//!
+//! Create a temporary directory under `CARGO_TARGET_TMPDIR`.
+//!
+//! ```no_run
+//! # use outdir_tempdir::*;
+//! #[test]
+//! fn test_something() {
+//!     let dir = TempDir::new_in_target_tmp().autorm();
+//!
+//!     let tempdir = dir.path();
+//!
+//!     // Test your code using `tempdir`.
+//! }
+//! ```
+//!
+//! Use `CARGO_TARGET_TMPDIR` with a specified relative path.
+//!
+//! ```no_run
+//! # use outdir_tempdir::*;
+//! #[test]
+//! fn test_something() {
+//!     let dir = TempDir::with_path_in_target_tmp("foo/bar/baz").autorm();
+//!
+//!     let tempdir = dir.path();
+//!
+//!     // Test your code using `tempdir`.
+//! }
+//! ```
+//!
+//! # Path safety
+//!
+//! Specified paths must be relative paths inside the selected root directory.
+//! Parent-directory components such as `..` and absolute paths are rejected to
+//! avoid escaping from `OUT_DIR` or `CARGO_TARGET_TMPDIR`.
+
 mod error;
 pub use crate::error::{Error, Result};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
 
-/// Provides a function to creating a temporary directory that will be automatically removed upon being dropped.
+/// Root directory kind used to create temporary directories.
+enum TempDirRoot {
+    /// Use Cargo's OUT_DIR.
+    OutDir,
+
+    /// Use Cargo's CARGO_TARGET_TMPDIR.
+    CargoTargetTmpDir,
+}
+
+/// Represents a temporary directory created under a Cargo-provided root directory.
+///
+/// The directory is removed when this value is dropped only if automatic removal
+/// has been enabled by calling [`TempDir::autorm`].
 pub struct TempDir {
     root: PathBuf,
     target: PathBuf,
@@ -108,7 +158,7 @@ impl TempDir {
         Self::with_path_safe(path).unwrap()
     }
 
-    /// Create a temporary directory with a specified path.
+    /// Create a temporary directory with a specified path under `OUT_DIR`.
     ///
     /// # Errors
     ///
@@ -117,10 +167,62 @@ impl TempDir {
     /// If the current directory is specified, there is a potential risk of deleting `OUT_DIR`, resulting in an `InvalidPath` error.
     /// If the temporary directory cannot be created, it will lead to an `Io` error.
     pub fn with_path_safe<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::with_path_safe_in(path, TempDirRoot::OutDir)
+    }
+
+    /// Create a randomly named temporary directory under `CARGO_TARGET_TMPDIR`.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the temporary directory cannot be created.  
+    /// (because testing cannot proceed)
+    pub fn new_in_target_tmp() -> Self {
+        Self::with_path_in_target_tmp(format!("test-{}", Uuid::new_v4()))
+    }
+
+    /// Create a temporary directory with a specified path under `CARGO_TARGET_TMPDIR`.
+    ///
+    /// # Panics
+    ///
+    /// This function triggers a panic under the following conditions.  
+    /// (because testing cannot proceed)
+    ///
+    /// * `CARGO_TARGET_TMPDIR` is not available.
+    /// * Attempting to access the parent directory (which may result in escaping from `CARGO_TARGET_TMPDIR`).
+    /// * Attempting to access the root directory (for the same reason).
+    /// * Specifying the current directory (which may lead to the deletion of `CARGO_TARGET_TMPDIR`).
+    /// * Failing to create the temporary directory.
+    pub fn with_path_in_target_tmp<P: AsRef<Path>>(path: P) -> Self {
+        Self::with_path_safe_in_target_tmp(path).unwrap()
+    }
+
+    /// Create a temporary directory with a specified path under `CARGO_TARGET_TMPDIR`.
+    ///
+    /// # Errors
+    ///
+    /// If `CARGO_TARGET_TMPDIR` is not available, it will lead to a `CargoTargetTmpDirNotFound` error.
+    /// Attempting to access the parent directory will result in a `ParentDirContains` error, as it could lead to escaping from `CARGO_TARGET_TMPDIR`.
+    /// Similarly, attempting to access the root directory will result in a `RootDirContains` error for the same reason.
+    /// If the current directory is specified, there is a potential risk of deleting `CARGO_TARGET_TMPDIR`, resulting in an `InvalidPath` error.
+    /// If the temporary directory cannot be created, it will lead to an `Io` error.
+    pub fn with_path_safe_in_target_tmp<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::with_path_safe_in(path, TempDirRoot::CargoTargetTmpDir)
+    }
+
+    /// Create a temporary directory with a specified path under the selected root directory.
+    ///
+    /// # Errors
+    ///
+    /// Attempting to access the parent directory will result in a `ParentDirContains` error, as it could lead to escaping from the selected root directory.
+    /// Similarly, attempting to access the root directory will result in a `RootDirContains` error for the same reason.
+    /// If the current directory is specified, there is a potential risk of deleting the selected root directory, resulting in an `InvalidPath` error.
+    /// If the selected root directory is not available, it will lead to an `OutDirNotFound` or `CargoTargetTmpDirNotFound` error.
+    /// If the temporary directory cannot be created, it will lead to an `Io` error.
+    fn with_path_safe_in<P: AsRef<Path>>(path: P, root: TempDirRoot) -> Result<Self> {
         let path = path.as_ref();
         let target = cleansing_path(path)?;
 
-        let target_root = target_root().ok_or(Error::OutDirNotFound)?;
+        let target_root = target_root(root)?;
         let target_full_path = target_root.join(&target);
 
         if target_root == target_full_path {
@@ -137,20 +239,20 @@ impl TempDir {
         })
     }
 
-    /// Enable automatically removal.
+    /// Enable automatic removal when this value is dropped.
     pub fn autorm(mut self) -> Self {
         self.autorm = true;
         self
     }
 
-    /// Get path to the temporary directory.
+    /// Get the path to the temporary directory.
     pub fn path(&self) -> &Path {
         self.full.as_path()
     }
 }
 
 impl Drop for TempDir {
-    /// Remove the temporary directory if autorm is true.
+    /// Remove the temporary directory if automatic removal is enabled.
     fn drop(&mut self) {
         if self.autorm {
             if let Some(topdir) = self.target.iter().next() {
@@ -167,17 +269,24 @@ impl Default for TempDir {
     }
 }
 
-/// Get `OUT_DIR` as temporary directory root.
-fn target_root() -> Option<PathBuf> {
-    Some(PathBuf::from(std::env!("OUT_DIR")))
+/// Get the selected root directory from Cargo-provided environment variables.
+fn target_root(root: TempDirRoot) -> Result<PathBuf> {
+    match root {
+        TempDirRoot::OutDir => Ok(PathBuf::from(std::env!("OUT_DIR"))),
+        TempDirRoot::CargoTargetTmpDir => std::env::var_os("CARGO_TARGET_TMPDIR")
+            .map(PathBuf::from)
+            .ok_or(Error::CargoTargetTmpDirNotFound),
+    }
 }
 
 /// Clean up the specified path.
 ///
 /// # Errors
 ///
-/// Attempting to access the parent directory will result in a `ParentDirContains` error, as it could lead to escaping from `OUT_DIR`.
-/// Similarly, attempting to access the root directory will result in a `RootDirContains` error for the same reason.
+/// Attempting to access the parent directory will result in a `ParentDirContains` error,
+/// as it could lead to escaping from the selected root directory.
+/// Similarly, attempting to access the root directory will result in a `RootDirContains` error
+/// for the same reason.
 fn cleansing_path<P: AsRef<Path>>(path: P) -> Result<PathBuf> {
     let path = path.as_ref();
     let mut ret = PathBuf::new();
@@ -284,6 +393,28 @@ mod tests {
             assert!(temp.path().is_dir());
             temp.path().to_path_buf()
         };
+        assert!(!rmdir.try_exists().unwrap());
+    }
+
+    #[test]
+    fn test_dir_in_target_tmp() {
+        let Some(target_tmp) = std::env::var_os("CARGO_TARGET_TMPDIR").map(PathBuf::from) else {
+            println!("skipped: CARGO_TARGET_TMPDIR is not set");
+            return;
+        };
+
+        let rmdir = {
+            let temp = TempDir::with_path_safe_in_target_tmp("foo/bar/baz")
+                .expect("failed to create temporary directory under CARGO_TARGET_TMPDIR")
+                .autorm();
+
+            assert!(temp.path().starts_with(&target_tmp));
+            assert!(temp.path().try_exists().unwrap());
+            assert!(temp.path().is_dir());
+
+            temp.path().to_path_buf()
+        };
+
         assert!(!rmdir.try_exists().unwrap());
     }
 }

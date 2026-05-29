@@ -1,6 +1,6 @@
 [package]
 name = "outdir-tempdir"
-version = "0.2.0"
+version = "0.2.9"
 authors = ["Niumlaque <niumlaque@gmail.com>"]
 description = "A crate for cargo-test to create temporary directories in the OUT_DIR."
 edition = "2021"
@@ -12,5 +12,5 @@ categories = ["development-tools::testing"]
 keywords = ["tempdir", "tmpdir", "testing"]
 
 [dependencies.uuid]
-version = "1.8.0"
+version = "1"
 features = ["v4", "fast-rng"]

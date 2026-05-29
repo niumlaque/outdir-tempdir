@@ -9,6 +9,7 @@ pub enum Error {
     ParentDirContains(PathBuf),
     RootDirContains(PathBuf),
     OutDirNotFound,
+    CargoTargetTmpDirNotFound,
     InvalidPath(PathBuf),
 }
 
@@ -32,7 +33,17 @@ impl fmt::Display for Error {
             }
             RootDirContains(p) => write!(formatter, "\"{}\" contains root directory", p.display()),
             OutDirNotFound => write!(formatter, "OUT_DIR not found"),
+            CargoTargetTmpDirNotFound => write!(formatter, "CARGO_TARGET_TMPDIR not found"),
             InvalidPath(p) => write!(formatter, "Invalid path {}", p.display()),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::Io(error) => Some(error),
+            _ => None,
         }
     }
 }
