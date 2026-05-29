@@ -7,9 +7,18 @@
 //! This is intentional: this crate is not a general-purpose temporary directory
 //! crate and does not use `$TMPDIR`, `%TEMP%`, or [`std::env::temp_dir`] by default.
 //!
+//! If you want to use an environment-provided temporary directory such as `$TMPDIR`,
+//! use the builder API explicitly, for example [`TempDir::builder`]
+//! with [`TempDirBuilder::env`].
+//!
 //! For integration tests and benchmarks where `OUT_DIR` is not writable at test
 //! runtime, this crate also provides APIs that create temporary directories under
 //! `CARGO_TARGET_TMPDIR`.
+//!
+//! When you need caller-defined fallback order across multiple writable roots,
+//! use [`TempDir::builder`]. This is useful in sandboxed environments where a
+//! specific environment variable such as `TMPDIR` may point to the only
+//! writable temporary directory.
 //!
 //! # Usage
 //!
@@ -100,39 +109,100 @@
 //! }
 //! ```
 //!
+//! Create a temporary directory with caller-defined fallback order.
+//!
+//! ```no_run
+//! # use outdir_tempdir::*;
+//! #[test]
+//! fn test_something() {
+//!     let dir = TempDir::builder()
+//!         .env("TMPDIR")         // Try TMPDIR first when the environment variable is set.
+//!         .cargo_target_tmpdir() // Otherwise try runtime CARGO_TARGET_TMPDIR.
+//!         .out_dir()             // Otherwise fall back to the crate's compile-time OUT_DIR.
+//!         .build()
+//!         .expect("failed to create temporary directory with builder")
+//!         .autorm();
+//!
+//!     let tempdir = dir.path();
+//!
+//!     // Test your code using `tempdir`.
+//! }
+//! ```
+//!
+//! # Builder API
+//!
+//! Use [`TempDir::builder`] when you want caller-defined fallback order across
+//! multiple root candidates.
+//!
+//! Builder candidates are tried in the exact order you add them.
+//!
+//! - [`TempDirBuilder::env`] uses the named environment variable only when it is
+//!   set and non-empty. For example, `env("TMPDIR")` does not fall back to
+//!   `/tmp` by itself.
+//! - [`TempDirBuilder::platform_temp_dir`] uses [`std::env::temp_dir`] as an
+//!   explicit platform-default fallback. This may resolve to `/tmp` or another
+//!   OS default directory.
+//! - [`TempDirBuilder::cargo_target_tmpdir`] uses runtime
+//!   `CARGO_TARGET_TMPDIR` when it is available.
+//! - [`TempDirBuilder::out_dir`] uses the crate's compile-time `OUT_DIR`.
+//! - Builder-created directories always live under a random private top-level
+//!   directory such as `test-<uuid>`.
+//!
+//! This is useful in sandboxed environments where `TMPDIR` may point to the
+//! only writable temporary directory, while `OUT_DIR` should remain available as
+//! a later fallback.
+//!
+//! For example, `build_with_path("foo/bar/baz")` creates
+//! `root/test-<uuid>/foo/bar/baz`, and [`TempDir::autorm`] removes only
+//! `root/test-<uuid>`.
+//!
 //! # Path safety
 //!
 //! Specified paths must be relative paths inside the selected root directory.
 //! Parent-directory components such as `..` and absolute paths are rejected to
 //! avoid escaping from `OUT_DIR` or `CARGO_TARGET_TMPDIR`.
 
+mod builder;
 mod error;
+pub use crate::builder::TempDirBuilder;
 pub use crate::error::{Error, Result};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
 
-/// Root directory kind used to create temporary directories.
+/// Root candidate used to create temporary directories.
+#[derive(Clone)]
 enum TempDirRoot {
+    /// Use a root from an environment variable.
+    Env(String),
+
+    /// Use the platform temporary directory.
+    PlatformTempDir,
+
     /// Use Cargo's OUT_DIR.
-    OutDir,
+    Out,
 
     /// Use Cargo's CARGO_TARGET_TMPDIR.
-    CargoTargetTmpDir,
+    CargoTargetTmp,
 }
 
-/// Represents a temporary directory created under a Cargo-provided root directory.
+/// Represents a temporary directory created under a selected root directory.
 ///
 /// The directory is removed when this value is dropped only if automatic removal
 /// has been enabled by calling [`TempDir::autorm`].
 pub struct TempDir {
     root: PathBuf,
-    target: PathBuf,
+    remove_target_rel: PathBuf,
     full: PathBuf,
     autorm: bool,
 }
 
 impl TempDir {
+    /// Create a builder for caller-defined temporary directory root fallback order.
+    pub fn builder() -> TempDirBuilder {
+        TempDirBuilder::new()
+    }
+
     /// Create a randomly named temporary directory.
     ///
     /// # Panics
@@ -167,7 +237,7 @@ impl TempDir {
     /// If the current directory is specified, there is a potential risk of deleting `OUT_DIR`, resulting in an `InvalidPath` error.
     /// If the temporary directory cannot be created, it will lead to an `Io` error.
     pub fn with_path_safe<P: AsRef<Path>>(path: P) -> Result<Self> {
-        Self::with_path_safe_in(path, TempDirRoot::OutDir)
+        Self::with_path_safe_in(path, TempDirRoot::Out)
     }
 
     /// Create a randomly named temporary directory under `CARGO_TARGET_TMPDIR`.
@@ -206,7 +276,7 @@ impl TempDir {
     /// If the current directory is specified, there is a potential risk of deleting `CARGO_TARGET_TMPDIR`, resulting in an `InvalidPath` error.
     /// If the temporary directory cannot be created, it will lead to an `Io` error.
     pub fn with_path_safe_in_target_tmp<P: AsRef<Path>>(path: P) -> Result<Self> {
-        Self::with_path_safe_in(path, TempDirRoot::CargoTargetTmpDir)
+        Self::with_path_safe_in(path, TempDirRoot::CargoTargetTmp)
     }
 
     /// Create a temporary directory with a specified path under the selected root directory.
@@ -220,23 +290,10 @@ impl TempDir {
     /// If the temporary directory cannot be created, it will lead to an `Io` error.
     fn with_path_safe_in<P: AsRef<Path>>(path: P, root: TempDirRoot) -> Result<Self> {
         let path = path.as_ref();
-        let target = cleansing_path(path)?;
-
+        let target = Self::cleanse_relative_path(path)?;
         let target_root = target_root(root)?;
-        let target_full_path = target_root.join(&target);
 
-        if target_root == target_full_path {
-            return Err(Error::InvalidPath(path.to_path_buf()));
-        }
-
-        fs::create_dir_all(target_full_path.as_path())?;
-
-        Ok(Self {
-            root: target_root,
-            target,
-            full: target_full_path,
-            autorm: false,
-        })
+        Self::create_in_root(path, &target, target_root)
     }
 
     /// Enable automatic removal when this value is dropped.
@@ -255,9 +312,11 @@ impl Drop for TempDir {
     /// Remove the temporary directory if automatic removal is enabled.
     fn drop(&mut self) {
         if self.autorm {
-            if let Some(topdir) = self.target.iter().next() {
-                let rmdir = self.root.join(topdir);
-                fs::remove_dir_all(rmdir).unwrap();
+            let rmdir = self.root.join(&self.remove_target_rel);
+            match fs::remove_dir_all(rmdir) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => panic!("{error}"),
             }
         }
     }
@@ -271,12 +330,11 @@ impl Default for TempDir {
 
 /// Get the selected root directory from Cargo-provided environment variables.
 fn target_root(root: TempDirRoot) -> Result<PathBuf> {
-    match root {
-        TempDirRoot::OutDir => Ok(PathBuf::from(std::env!("OUT_DIR"))),
-        TempDirRoot::CargoTargetTmpDir => std::env::var_os("CARGO_TARGET_TMPDIR")
-            .map(PathBuf::from)
-            .ok_or(Error::CargoTargetTmpDirNotFound),
-    }
+    TempDir::root_path_if_available(&root).ok_or(match root {
+        TempDirRoot::Env(_) | TempDirRoot::PlatformTempDir => Error::NoRootCandidatesAvailable,
+        TempDirRoot::Out => Error::OutDirNotFound,
+        TempDirRoot::CargoTargetTmp => Error::CargoTargetTmpDirNotFound,
+    })
 }
 
 /// Clean up the specified path.
@@ -302,6 +360,63 @@ fn cleansing_path<P: AsRef<Path>>(path: P) -> Result<PathBuf> {
     }
 
     Ok(ret)
+}
+
+impl TempDir {
+    fn create_in_root(path: &Path, target: &Path, target_root: PathBuf) -> Result<Self> {
+        let Some(remove_target_rel) = top_level_component_path(target) else {
+            return Err(Error::InvalidPath(path.to_path_buf()));
+        };
+        Self::create_in_root_with_removal(path, target, target_root, remove_target_rel)
+    }
+
+    fn create_in_root_with_removal(
+        path: &Path,
+        target: &Path,
+        target_root: PathBuf,
+        remove_target_rel: PathBuf,
+    ) -> Result<Self> {
+        let target_full_path = target_root.join(target);
+
+        if target_root == target_full_path {
+            return Err(Error::InvalidPath(path.to_path_buf()));
+        }
+
+        fs::create_dir_all(target_full_path.as_path())?;
+
+        Ok(Self {
+            root: target_root,
+            remove_target_rel,
+            full: target_full_path,
+            autorm: false,
+        })
+    }
+
+    fn cleanse_relative_path(path: &Path) -> Result<PathBuf> {
+        cleansing_path(path)
+    }
+
+    fn root_path_if_available(root: &TempDirRoot) -> Option<PathBuf> {
+        match root {
+            TempDirRoot::Env(name) => {
+                let value = std::env::var_os(name)?;
+                if value.is_empty() {
+                    return None;
+                }
+
+                Some(PathBuf::from(value))
+            }
+            TempDirRoot::PlatformTempDir => Some(std::env::temp_dir()),
+            TempDirRoot::Out => Some(PathBuf::from(std::env!("OUT_DIR"))),
+            TempDirRoot::CargoTargetTmp => {
+                std::env::var_os("CARGO_TARGET_TMPDIR").map(PathBuf::from)
+            }
+        }
+    }
+}
+
+fn top_level_component_path(path: &Path) -> Option<PathBuf> {
+    path.iter().next().map(PathBuf::from)
 }
 
 #[cfg(test)]
@@ -416,5 +531,134 @@ mod tests {
         };
 
         assert!(!rmdir.try_exists().unwrap());
+    }
+
+    #[test]
+    fn test_builder_prefers_platform_temp_dir_then_out_dir() {
+        let temp_root = std::env::temp_dir();
+        let rmdir = {
+            let temp = TempDir::builder()
+                .platform_temp_dir()
+                .out_dir()
+                .build()
+                .expect("failed to create temporary directory with builder")
+                .autorm();
+
+            assert!(temp.path().starts_with(&temp_root));
+            assert!(temp.path().try_exists().unwrap());
+            assert!(temp.path().is_dir());
+
+            temp.path().to_path_buf()
+        };
+
+        assert!(!rmdir.try_exists().unwrap());
+    }
+
+    #[test]
+    fn test_builder_build_with_path() {
+        let temp_root = std::env::temp_dir();
+        let rmdir = {
+            let temp = TempDir::builder()
+                .platform_temp_dir()
+                .build_with_path("foo/bar/baz")
+                .expect("failed to create temporary directory with specified path")
+                .autorm();
+
+            let relative = temp.path().strip_prefix(&temp_root).unwrap();
+            let mut components = relative.iter();
+            let private_top = components.next().unwrap().to_string_lossy().into_owned();
+
+            assert!(private_top.starts_with("test-"));
+            assert!(temp.path().ends_with(Path::new("foo/bar/baz")));
+            assert!(temp.path().try_exists().unwrap());
+            assert!(temp.path().is_dir());
+
+            temp.path()
+                .strip_prefix(&temp_root)
+                .unwrap()
+                .iter()
+                .next()
+                .map(|x| temp_root.join(x))
+                .unwrap()
+        };
+
+        assert!(!rmdir.try_exists().unwrap());
+    }
+
+    #[test]
+    fn test_builder_falls_back_when_target_tmp_unavailable() {
+        let Some(out_dir) = TempDir::root_path_if_available(&TempDirRoot::Out) else {
+            panic!("OUT_DIR should always be available");
+        };
+
+        if std::env::var_os("CARGO_TARGET_TMPDIR").is_some() {
+            println!("skipped: CARGO_TARGET_TMPDIR is set");
+            return;
+        }
+
+        let rmdir = {
+            let temp = TempDir::builder()
+                .cargo_target_tmpdir()
+                .out_dir()
+                .build()
+                .expect("failed to fall back from CARGO_TARGET_TMPDIR to OUT_DIR")
+                .autorm();
+
+            assert!(temp.path().starts_with(&out_dir));
+            assert!(temp.path().try_exists().unwrap());
+            assert!(temp.path().is_dir());
+
+            temp.path().to_path_buf()
+        };
+
+        assert!(!rmdir.try_exists().unwrap());
+    }
+
+    #[test]
+    fn test_builder_falls_back_from_missing_env_to_out_dir() {
+        let Some(out_dir) = TempDir::root_path_if_available(&TempDirRoot::Out) else {
+            panic!("OUT_DIR should always be available");
+        };
+
+        let rmdir = {
+            let temp = TempDir::builder()
+                .env("THIS_ENV_SHOULD_NOT_EXIST")
+                .out_dir()
+                .build()
+                .expect("failed to fall back from missing env to OUT_DIR")
+                .autorm();
+
+            assert!(temp.path().starts_with(&out_dir));
+            assert!(temp.path().try_exists().unwrap());
+            assert!(temp.path().is_dir());
+
+            temp.path().to_path_buf()
+        };
+
+        assert!(!rmdir.try_exists().unwrap());
+    }
+
+    #[test]
+    fn test_builder_path_safety() {
+        match TempDir::builder()
+            .platform_temp_dir()
+            .build_with_path("../tmp/path")
+        {
+            Err(Error::ParentDirContains(path)) => assert_eq!(path, PathBuf::from("../tmp/path")),
+            _ => panic!(),
+        }
+
+        match TempDir::builder()
+            .platform_temp_dir()
+            .build_with_path("/tmp/path")
+        {
+            Err(Error::RootDirContains(path)) => assert_eq!(path, PathBuf::from("/tmp/path")),
+            _ => panic!(),
+        }
+
+        match TempDir::builder().platform_temp_dir().build_with_path(".") {
+            Err(Error::InvalidPath(path)) => assert_eq!(path, PathBuf::from(".")),
+            _ => panic!(),
+        }
     }
 }

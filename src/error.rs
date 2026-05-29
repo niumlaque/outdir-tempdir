@@ -6,6 +6,9 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
+    NoRootCandidatesConfigured,
+    NoRootCandidatesAvailable,
+    RootCandidatesExhausted(io::Error),
     ParentDirContains(PathBuf),
     RootDirContains(PathBuf),
     OutDirNotFound,
@@ -28,6 +31,24 @@ impl fmt::Display for Error {
 
         match self {
             Io(e) => e.fmt(formatter),
+            NoRootCandidatesConfigured => {
+                write!(
+                    formatter,
+                    "no temp directory root candidates were configured"
+                )
+            }
+            NoRootCandidatesAvailable => {
+                write!(
+                    formatter,
+                    "none of the configured temp directory roots were available"
+                )
+            }
+            RootCandidatesExhausted(e) => {
+                write!(
+                    formatter,
+                    "failed to create a temporary directory in all configured roots: {e}"
+                )
+            }
             ParentDirContains(p) => {
                 write!(formatter, "\"{}\" contains parent directory", p.display())
             }
@@ -42,7 +63,7 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Error::Io(error) => Some(error),
+            Error::Io(error) | Error::RootCandidatesExhausted(error) => Some(error),
             _ => None,
         }
     }

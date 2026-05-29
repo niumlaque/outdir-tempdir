@@ -8,8 +8,14 @@ By default, temporary directories are created under this crate's `OUT_DIR`.
 This is intentional: this crate is not a general-purpose temporary directory
 crate and does not use `$TMPDIR`, `%TEMP%`, or `std::env::temp_dir()` by default.
 
+If you want to use an environment-provided temporary directory such as `$TMPDIR`,
+use the builder API explicitly, for example `TempDir::builder().env("TMPDIR")`.
+
 For integration tests and benchmarks, this crate also provides APIs that create
 temporary directories under `CARGO_TARGET_TMPDIR`.
+
+When you need a caller-defined fallback order across multiple writable roots,
+including environment-provided roots, this crate also provides a builder API.
 
 ## Installation
 
@@ -27,6 +33,10 @@ Use the `OUT_DIR` APIs when you want the existing default behavior.
 Use the `CARGO_TARGET_TMPDIR` APIs when your test is an integration test or
 benchmark and you want a test-specific writable directory provided by Cargo.
 
+Use the builder API when you need to try several roots in a specific order, such
+as sandboxed packaging environments where only a temporary directory exposed
+through `TMPDIR` may be writable.
+
 | Use case | Recommended API |
 | --- | --- |
 | Default behavior | `TempDir::new()` |
@@ -35,6 +45,7 @@ benchmark and you want a test-specific writable directory provided by Cargo.
 | Integration test or benchmark temporary directory | `TempDir::new_in_target_tmp()` |
 | Integration test or benchmark with a fixed relative path | `TempDir::with_path_in_target_tmp(path)` |
 | Fallible `CARGO_TARGET_TMPDIR` behavior | `TempDir::with_path_safe_in_target_tmp(path)` |
+| Caller-defined fallback order across multiple roots | `TempDir::builder()` |
 
 `CARGO_TARGET_TMPDIR` is normally available for integration tests and benchmarks.
 It may not be available in ordinary unit tests.
@@ -42,6 +53,10 @@ It may not be available in ordinary unit tests.
 The default `OUT_DIR` APIs are kept intentionally so leftover test data can be removed by `cargo clean`.
 If your test environment cannot write to the compile-time `OUT_DIR` path, such as some sandboxed packaging environments,
 use the `CARGO_TARGET_TMPDIR` APIs instead.
+
+If neither `OUT_DIR` nor `CARGO_TARGET_TMPDIR` is suitable, use the builder API
+to try `TMPDIR` first and then fall back to Cargo roots. Add the platform
+temporary directory explicitly only when you want OS-default fallback.
 
 ## Basic usage
 
@@ -157,6 +172,88 @@ fn test_something() {
 }
 ```
 
+## Builder API
+
+Use the builder API when you need explicit fallback order. Candidates are tried
+in the exact order you add them.
+
+```rust
+use outdir_tempdir::TempDir;
+
+#[test]
+fn test_something() {
+    let dir = TempDir::builder()
+        .env("TMPDIR")         // Try TMPDIR first when the environment variable is set.
+        .cargo_target_tmpdir() // Otherwise try runtime CARGO_TARGET_TMPDIR.
+        .out_dir()             // Otherwise fall back to the crate's compile-time OUT_DIR.
+        .build()
+        .expect("failed to create temporary directory with builder")
+        .autorm();
+
+    let tempdir = dir.path();
+
+    // Test your code using `tempdir`.
+}
+```
+
+- `.env("TMPDIR")` uses `TMPDIR` only when it is set and non-empty.
+- `.cargo_target_tmpdir()` uses runtime `CARGO_TARGET_TMPDIR` if it is set.
+- `.out_dir()` uses the crate's compile-time `OUT_DIR`.
+- Builder-created directories always live under a random private top-level
+  directory such as `test-<uuid>`.
+
+If you explicitly want OS-default temporary-directory fallback, add
+`.platform_temp_dir()`. This uses `std::env::temp_dir()` and may choose `/tmp`
+or another platform default even when `TMPDIR` is not set.
+
+```rust
+use outdir_tempdir::TempDir;
+
+#[test]
+fn test_something() {
+    let dir = TempDir::builder()
+        .env("TMPDIR")
+        .platform_temp_dir()
+        .cargo_target_tmpdir()
+        .out_dir()
+        .build()
+        .expect("failed to create temporary directory with builder")
+        .autorm();
+
+    let tempdir = dir.path();
+
+    // Test your code using `tempdir`.
+}
+```
+
+You can also specify a relative path explicitly.
+
+```rust
+use outdir_tempdir::TempDir;
+
+#[test]
+fn test_something() {
+    let dir = TempDir::builder()
+        .platform_temp_dir()
+        .out_dir()
+        .build_with_path("foo/bar/baz")
+        .expect("failed to create temporary directory with builder path")
+        .autorm();
+
+    let tempdir = dir.path();
+
+    // Test your code using `tempdir`.
+}
+```
+
+With `build_with_path("foo/bar/baz")`, the builder creates
+`root/test-<uuid>/foo/bar/baz`.
+
+This private top-level directory is important when the builder uses shared roots
+such as `$TMPDIR` or `/tmp`. Calling `.autorm()` removes only `root/test-<uuid>`,
+not `root/foo`, so it does not risk deleting data owned by another process or
+project.
+
 ## Automatic removal
 
 Temporary directories are not removed by default.
@@ -200,7 +297,7 @@ assert!(TempDir::with_path_safe_in_target_tmp("../foo").is_err());
 assert!(TempDir::with_path_safe_in_target_tmp("/foo").is_err());
 ```
 
-## Why not `$TMPDIR`?
+## Why not `$TMPDIR` by default?
 
 This crate is intentionally scoped to Cargo-provided directories.
 

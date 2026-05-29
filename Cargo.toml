@@ -2,7 +2,7 @@
 name = "outdir-tempdir"
 version = "0.2.9"
 authors = ["Niumlaque <niumlaque@gmail.com>"]
-description = "A crate for cargo-test to create temporary directories in the OUT_DIR."
+description = "A crate for cargo-test to create temporary directories under Cargo-provided or caller-selected roots."
 edition = "2021"
 
 license = "MIT"
