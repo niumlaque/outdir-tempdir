@@ -217,6 +217,42 @@ mod tests {
     }
 
     #[test]
+    fn builder_build_with_autorm_removes_only_generated_private_root() {
+        if !consumer_docker_test_enabled() {
+            println!("skipped: this consumer-crate test is intended to run inside Docker");
+            return;
+        }
+
+        let tmpdir = configured_tmpdir();
+
+        let private_root: PathBuf = {
+            let dir = TempDir::builder()
+                .env("TMPDIR")
+                .out_dir()
+                .build()
+                .expect("failed to create builder temp dir")
+                .autorm();
+
+            let path = dir.path().to_path_buf();
+
+            assert!(path.starts_with(&tmpdir));
+            assert!(path.exists());
+            assert!(path.is_dir());
+
+            let private_top = path
+                .file_name()
+                .expect("builder temp dir must have a final path component");
+            assert!(private_top.to_string_lossy().starts_with("test-"));
+
+            path
+        };
+
+        assert!(!private_root.exists());
+        assert!(tmpdir.exists());
+        assert!(tmpdir.is_dir());
+    }
+
+    #[test]
     fn builder_with_path_autorm_removes_only_private_root() {
         if !consumer_docker_test_enabled() {
             println!("skipped: this deletion-safety test is intended to run inside Docker");
