@@ -15,11 +15,13 @@ mod tests {
     const CHILD_MODE_OUT_DIR_FALLBACK: &str = "out-dir-fallback";
     const CHILD_MODE_TMPDIR_CREATE_FAILS: &str = "tmpdir-create-fails";
     const CHILD_MODE_EMPTY_ENV_SKIPPED: &str = "empty-env-skipped";
+    const CHILD_MODE_PLATFORM_TEMP_DIR_FIRST: &str = "platform-temp-dir-first";
     const CASE_TMPDIR_FIRST: &str = "tmpdir-first";
     const CASE_CARGO_TARGET_TMPDIR_SECOND: &str = "cargo-target-tmpdir-second";
     const CASE_OUT_DIR_LAST: &str = "out-dir-last";
     const CASE_TMPDIR_CREATE_FAILS: &str = "tmpdir-create-fails";
     const CASE_EMPTY_ENV_SKIPPED: &str = "empty-env-skipped";
+    const CASE_PLATFORM_TEMP_DIR_FIRST: &str = "platform-temp-dir-first";
 
     fn consumer_docker_test_enabled() -> bool {
         env::var_os(DOCKER_SENTINEL_ENV).is_some()
@@ -157,6 +159,16 @@ mod tests {
             .out_dir()
             .build_with_path(marker_rel_path(case_name))
             .expect("failed to fall back after empty env root")
+            .autorm()
+    }
+
+    fn build_with_platform_temp_dir_then_fallback(case_name: &str) -> TempDir {
+        TempDir::builder()
+            .platform_temp_dir()
+            .cargo_target_tmpdir()
+            .out_dir()
+            .build_with_path(marker_rel_path(case_name))
+            .expect("failed to create temporary directory under platform temp dir")
             .autorm()
     }
 
@@ -305,6 +317,69 @@ mod tests {
         let out_matches = find_private_roots_with_marker(&out_dir, CASE_CARGO_TARGET_TMPDIR_SECOND);
 
         assert_eq!(cargo_matches, vec![private_root.clone()]);
+        assert!(out_matches.is_empty());
+
+        drop(dir);
+        assert!(!private_root.exists());
+    }
+
+    #[test]
+    fn builder_prefers_platform_temp_dir_over_later_candidates() {
+        if !consumer_docker_test_enabled() {
+            println!("skipped: this fallback-order test is intended to run inside Docker");
+            return;
+        }
+
+        match env::var(CHILD_MODE_ENV).as_deref() {
+            Ok(CHILD_MODE_PLATFORM_TEMP_DIR_FIRST) => {
+                run_platform_temp_dir_first_child_case();
+                return;
+            }
+            Ok(_) => panic!("unexpected child mode"),
+            Err(_) => {}
+        }
+
+        let current_exe = env::current_exe().expect("failed to locate current test binary");
+        let status = Command::new(current_exe)
+            .env(DOCKER_SENTINEL_ENV, "1")
+            .env(CHILD_MODE_ENV, CHILD_MODE_PLATFORM_TEMP_DIR_FIRST)
+            .env(
+                "OUTDIR_TEMPDIR_CONSUMER_CARGO_TARGET_TMPDIR",
+                configured_cargo_target_tmpdir(),
+            )
+            .env("CARGO_TARGET_TMPDIR", configured_cargo_target_tmpdir())
+            .env_remove("TMPDIR")
+            .arg("--exact")
+            .arg("tests::builder_prefers_platform_temp_dir_over_later_candidates")
+            .arg("--nocapture")
+            .status()
+            .expect("failed to run child test process");
+
+        assert!(status.success(), "child platform-temp-dir test failed");
+    }
+
+    fn run_platform_temp_dir_first_child_case() {
+        assert!(
+            env::var_os("TMPDIR").is_none(),
+            "TMPDIR must be unset in the child platform-temp-dir test"
+        );
+
+        let platform_temp_dir = env::temp_dir();
+        let cargo_target_tmpdir = configured_cargo_target_tmpdir();
+        let out_dir = detect_out_dir_root();
+
+        let dir = build_with_platform_temp_dir_then_fallback(CASE_PLATFORM_TEMP_DIR_FIRST);
+        let private_root =
+            assert_builder_selected_root(&dir, &platform_temp_dir, CASE_PLATFORM_TEMP_DIR_FIRST);
+
+        let platform_matches =
+            find_private_roots_with_marker(&platform_temp_dir, CASE_PLATFORM_TEMP_DIR_FIRST);
+        let cargo_matches =
+            find_private_roots_with_marker(&cargo_target_tmpdir, CASE_PLATFORM_TEMP_DIR_FIRST);
+        let out_matches = find_private_roots_with_marker(&out_dir, CASE_PLATFORM_TEMP_DIR_FIRST);
+
+        assert_eq!(platform_matches, vec![private_root.clone()]);
+        assert!(cargo_matches.is_empty());
         assert!(out_matches.is_empty());
 
         drop(dir);
