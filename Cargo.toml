@@ -1,6 +1,6 @@
 [package]
 name = "outdir-tempdir"
-version = "0.2.9"
+version = "0.3.0"
 authors = ["Niumlaque <niumlaque@gmail.com>"]
 description = "A crate for cargo-test to create temporary directories under Cargo-provided or caller-selected roots."
 edition = "2021"
