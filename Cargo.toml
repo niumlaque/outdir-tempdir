@@ -10,7 +10,15 @@ repository = "https://github.com/niumlaque/outdir-tempdir"
 readme = "README.md"
 categories = ["development-tools::testing"]
 keywords = ["tempdir", "tmpdir", "testing"]
+exclude = [
+    "/.dockerignore",
+    "/.gitignore",
+    "/Cargo.lock",
+    "/scripts/",
+    "/tests/",
+]
 
 [dependencies.uuid]
 version = "1"
 features = ["v4", "fast-rng"]
+
