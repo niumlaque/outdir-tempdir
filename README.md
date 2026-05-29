@@ -110,6 +110,11 @@ fn test_something() {
 }
 ```
 
+When `autorm()` is used with `TempDir::with_path("foo/bar/baz")`,
+the top-level component under `OUT_DIR` is removed when the value is dropped.
+In this example, that means `OUT_DIR/foo` is removed, not only
+`OUT_DIR/foo/bar/baz`.
+
 ## Using `CARGO_TARGET_TMPDIR`
 
 `OUT_DIR` is a Cargo build-script output directory. This crate captures `OUT_DIR`
@@ -150,6 +155,11 @@ fn test_something() {
     // Test your code using `tempdir`.
 }
 ```
+
+The same removal rule applies to `TempDir::with_path_in_target_tmp("foo/bar/baz")`.
+When `autorm()` is used, the top-level component under `CARGO_TARGET_TMPDIR` is removed.
+In this example, that means `CARGO_TARGET_TMPDIR/foo` is removed,
+not only `CARGO_TARGET_TMPDIR/foo/bar/baz`.
 
 If `CARGO_TARGET_TMPDIR` may not be available, use the safe API.
 
@@ -254,6 +264,10 @@ This private top-level directory is important when the builder uses shared roots
 such as `$TMPDIR` or `/tmp`. Calling `.autorm()` removes only `root/test-<uuid>`,
 not `root/foo`, so it does not risk deleting data owned by another process or
 project.
+
+This differs from the non-builder `with_path(...)` APIs,
+where `autorm()` removes the top-level component of the specified relative path
+under the selected Cargo root.
 
 ## Automatic removal
 

@@ -82,6 +82,10 @@
 //! }
 //! ```
 //!
+//! With the non-builder `with_path("foo/bar/baz")` APIs, [`TempDir::autorm`]
+//! removes the top-level component under the selected Cargo root. In this
+//! example, that means `foo`, not only `foo/bar/baz`.
+//!
 //! Create a temporary directory under `CARGO_TARGET_TMPDIR`.
 //!
 //! ```no_run
@@ -156,6 +160,10 @@
 //! For example, `build_with_path("foo/bar/baz")` creates
 //! `root/test-<uuid>/foo/bar/baz`, and [`TempDir::autorm`] removes only
 //! `root/test-<uuid>`.
+//!
+//! This differs from the non-builder `with_path(...)` APIs,
+//! where [`TempDir::autorm`] removes the top-level component of the specified relative
+//! path under the selected Cargo root.
 //!
 //! # Path safety
 //!
