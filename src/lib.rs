@@ -13,7 +13,8 @@
 //!
 //! For integration tests and benchmarks where `OUT_DIR` is not writable at test
 //! runtime, this crate also provides APIs that create temporary directories under
-//! `CARGO_TARGET_TMPDIR`.
+//! `CARGO_TARGET_TMPDIR`. If `CARGO_TARGET_TMPDIR` may not be set, prefer
+//! [`TempDir::with_path_safe_in_target_tmp`] over the panicking APIs.
 //!
 //! When you need caller-defined fallback order across multiple writable roots,
 //! use [`TempDir::builder`]. This is useful in sandboxed environments where a

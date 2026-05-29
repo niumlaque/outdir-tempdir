@@ -32,6 +32,7 @@ Use the `OUT_DIR` APIs when you want the existing default behavior.
 
 Use the `CARGO_TARGET_TMPDIR` APIs when your test is an integration test or
 benchmark and you want a test-specific writable directory provided by Cargo.
+Prefer the safe API if `CARGO_TARGET_TMPDIR` may not be set.
 
 Use the builder API when you need to try several roots in a specific order, such
 as sandboxed packaging environments where only a temporary directory exposed
@@ -42,9 +43,9 @@ through `TMPDIR` may be writable.
 | Default behavior | `TempDir::new()` |
 | Default behavior with a fixed relative path | `TempDir::with_path(path)` |
 | Fallible default behavior | `TempDir::with_path_safe(path)` |
-| Integration test or benchmark temporary directory | `TempDir::new_in_target_tmp()` |
-| Integration test or benchmark with a fixed relative path | `TempDir::with_path_in_target_tmp(path)` |
-| Fallible `CARGO_TARGET_TMPDIR` behavior | `TempDir::with_path_safe_in_target_tmp(path)` |
+| Integration test or benchmark where `CARGO_TARGET_TMPDIR` may be unavailable | `TempDir::with_path_safe_in_target_tmp(path)` |
+| Integration test or benchmark temporary directory, panicking if unavailable | `TempDir::new_in_target_tmp()` |
+| Integration test or benchmark with a fixed relative path, panicking if unavailable | `TempDir::with_path_in_target_tmp(path)` |
 | Caller-defined fallback order across multiple roots | `TempDir::builder()` |
 
 `CARGO_TARGET_TMPDIR` is normally available for integration tests and benchmarks.
@@ -118,8 +119,8 @@ In some environments, that compile-time `OUT_DIR` path may not be suitable for
 test runtime writes. For integration tests and benchmarks, Cargo provides
 `CARGO_TARGET_TMPDIR`, which is intended for test or benchmark data.
 
-Use the `*_in_target_tmp` APIs when you want to create temporary directories
-under `CARGO_TARGET_TMPDIR`.
+Use the `*_in_target_tmp` APIs when you want to create temporary directories under `CARGO_TARGET_TMPDIR`.
+If `CARGO_TARGET_TMPDIR` may not be set, use `TempDir::with_path_safe_in_target_tmp(...)` instead of the panicking APIs.
 
 ```rust
 use outdir_tempdir::TempDir;
