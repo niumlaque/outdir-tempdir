@@ -13,9 +13,11 @@ mod tests {
     const DOCKER_SENTINEL_ENV: &str = "OUTDIR_TEMPDIR_CONSUMER_DOCKER_TEST";
     const CHILD_MODE_ENV: &str = "OUTDIR_TEMPDIR_CONSUMER_CHILD_MODE";
     const CHILD_MODE_OUT_DIR_FALLBACK: &str = "out-dir-fallback";
+    const CHILD_MODE_TMPDIR_CREATE_FAILS: &str = "tmpdir-create-fails";
     const CASE_TMPDIR_FIRST: &str = "tmpdir-first";
     const CASE_CARGO_TARGET_TMPDIR_SECOND: &str = "cargo-target-tmpdir-second";
     const CASE_OUT_DIR_LAST: &str = "out-dir-last";
+    const CASE_TMPDIR_CREATE_FAILS: &str = "tmpdir-create-fails";
 
     fn consumer_docker_test_enabled() -> bool {
         env::var_os(DOCKER_SENTINEL_ENV).is_some()
@@ -136,6 +138,16 @@ mod tests {
             .autorm()
     }
 
+    fn build_with_tmpdir_then_fallback(case_name: &str) -> TempDir {
+        TempDir::builder()
+            .env("TMPDIR")
+            .cargo_target_tmpdir()
+            .out_dir()
+            .build_with_path(marker_rel_path(case_name))
+            .expect("failed to fall back after TMPDIR creation failure")
+            .autorm()
+    }
+
     #[test]
     fn temp_dir_without_autorm_remains_after_drop() {
         if !consumer_docker_test_enabled() {
@@ -229,7 +241,7 @@ mod tests {
         assert!(sentinel.exists());
         assert!(shared_foo.exists());
 
-        fs::remove_file(&sentinel).expect("failed to remove sentinel file");
+        let _ = fs::remove_file(&sentinel);
         let _ = fs::remove_dir(&shared_foo);
     }
 
@@ -322,6 +334,47 @@ mod tests {
         assert!(status.success(), "child fallback-order test failed");
     }
 
+    #[test]
+    fn builder_falls_back_after_tmpdir_creation_failure() {
+        if !consumer_docker_test_enabled() {
+            println!("skipped: this fallback-order test is intended to run inside Docker");
+            return;
+        }
+
+        match env::var(CHILD_MODE_ENV).as_deref() {
+            Ok(CHILD_MODE_TMPDIR_CREATE_FAILS) => {
+                run_tmpdir_creation_failure_child_case();
+                return;
+            }
+            Ok(_) => panic!("unexpected child mode"),
+            Err(_) => {}
+        }
+
+        let blocked_tmpdir = PathBuf::from("/tmp/outdir-tempdir-blocked-root");
+        let _ = fs::remove_file(&blocked_tmpdir);
+        fs::write(&blocked_tmpdir, "blocked").expect("failed to create blocked TMPDIR file");
+
+        let current_exe = env::current_exe().expect("failed to locate current test binary");
+        let status = Command::new(current_exe)
+            .env(DOCKER_SENTINEL_ENV, "1")
+            .env(CHILD_MODE_ENV, CHILD_MODE_TMPDIR_CREATE_FAILS)
+            .env(
+                "OUTDIR_TEMPDIR_CONSUMER_CARGO_TARGET_TMPDIR",
+                configured_cargo_target_tmpdir(),
+            )
+            .env("TMPDIR", &blocked_tmpdir)
+            .env("CARGO_TARGET_TMPDIR", configured_cargo_target_tmpdir())
+            .arg("--exact")
+            .arg("tests::builder_falls_back_after_tmpdir_creation_failure")
+            .arg("--nocapture")
+            .status()
+            .expect("failed to run child test process");
+
+        let _ = fs::remove_file(&blocked_tmpdir);
+
+        assert!(status.success(), "child fallback-after-failure test failed");
+    }
+
     fn run_out_dir_fallback_child_case() {
         let tmpdir = configured_tmpdir();
         let cargo_target_tmpdir = configured_cargo_target_tmpdir();
@@ -337,6 +390,31 @@ mod tests {
         assert!(tmp_matches.is_empty());
         assert!(cargo_matches.is_empty());
         assert_eq!(out_matches, vec![private_root.clone()]);
+
+        drop(dir);
+        assert!(!private_root.exists());
+    }
+
+    fn run_tmpdir_creation_failure_child_case() {
+        let blocked_tmpdir = configured_tmpdir();
+        let cargo_target_tmpdir = configured_cargo_target_tmpdir();
+        let out_dir = detect_out_dir_root();
+
+        assert!(
+            blocked_tmpdir.is_file(),
+            "TMPDIR override must point to a file"
+        );
+
+        let dir = build_with_tmpdir_then_fallback(CASE_TMPDIR_CREATE_FAILS);
+        let private_root =
+            assert_builder_selected_root(&dir, &cargo_target_tmpdir, CASE_TMPDIR_CREATE_FAILS);
+
+        let cargo_matches =
+            find_private_roots_with_marker(&cargo_target_tmpdir, CASE_TMPDIR_CREATE_FAILS);
+        let out_matches = find_private_roots_with_marker(&out_dir, CASE_TMPDIR_CREATE_FAILS);
+
+        assert_eq!(cargo_matches, vec![private_root.clone()]);
+        assert!(out_matches.is_empty());
 
         drop(dir);
         assert!(!private_root.exists());
