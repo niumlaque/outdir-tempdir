@@ -1,7 +1,7 @@
 //! # OUTDIR-TEMPDIR
 //!
 //! `outdir-tempdir` is a small testing utility crate for creating temporary
-//! directories under Cargo-provided directories.
+//! directories under Cargo-provided or caller-selected roots.
 //!
 //! By default, temporary directories are created under `OUT_DIR`.
 //! This is intentional: this crate is not a general-purpose temporary directory
@@ -337,7 +337,7 @@ impl Default for TempDir {
     }
 }
 
-/// Get the selected root directory from Cargo-provided environment variables.
+/// Get the selected root directory from the given root candidate.
 fn target_root(root: TempDirRoot) -> Result<PathBuf> {
     TempDir::root_path_if_available(&root).ok_or(match root {
         TempDirRoot::Env(_) | TempDirRoot::PlatformTempDir => Error::NoRootCandidatesAvailable,

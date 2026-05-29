@@ -1,7 +1,7 @@
 # outdir-tempdir
 
 `outdir-tempdir` is a small Rust testing utility crate for creating temporary
-directories under Cargo-provided directories.
+directories under Cargo-provided or caller-selected roots.
 
 By default, temporary directories are created under this crate's `OUT_DIR`.
 
